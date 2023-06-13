@@ -1,0 +1,657 @@
+---
+title: "Cyclistic Case Study"
+author: "Ali Gruett"
+date: "2023-06-02"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+---
+
+# Analysis of how annual members and casual riders use Cyclistic bikes differently.
+
+### Load relevant packages.
+
+Load all packages necessary to complete the analysis. Either set the working directory or make sure the current working directory is correct.
+
+```{r echo=TRUE, results='hide', message=FALSE}
+library(tidyverse)  #data manipulation, exploration, and visualization
+library(lubridate)  #works with dates and times
+library(ggplot2)  #visualize data
+library(dplyr) #good for data manipulation
+library(ggmap) #visualizing data on a map
+library(tidyr) #data cleaning
+library(sf) #a standardized way to encode spatial vector data
+library(mapview) #provides functions to create interactive visualizations of spatial data
+library(reshape2)
+getwd() #displays your working directory}
+```
+
+### Import data into R
+
+Read data into R from the working directory. Data is in the form of 12 csv files. Name all the data frames created. Each data frame represents all trips taken during a month. The time frame is May 2022 - April 2023.
+
+```{r echo=TRUE, results='hide', message=FALSE}
+May_2022 <- read_csv("202205-divvy-tripdata.csv")
+Jun_2022 <- read_csv("202206-divvy-tripdata.csv")
+Jul_2022 <- read_csv("202207-divvy-tripdata.csv")
+Aug_2022 <- read_csv("202208-divvy-tripdata.csv")
+Sep_2022 <- read_csv("202209-divvy-tripdata.csv")
+Oct_2022 <- read_csv("202210-divvy-tripdata.csv")
+Nov_2022 <- read_csv("202211-divvy-tripdata.csv")
+Dec_2022 <- read_csv("202212-divvy-tripdata.csv")
+Jan_2023 <- read_csv("202301-divvy-tripdata.csv")
+Feb_2023 <- read_csv("202302-divvy-tripdata.csv")
+Mar_2023 <- read_csv("202303-divvy-tripdata.csv")
+Apr_2023 <- read_csv("202304-divvy-tripdata.csv")
+```
+
+Inspect dataframes to ensure data types and columns are correct and identical between all the data frames.This allows the data to append correctly.
+
+```{r}
+str(May_2022)
+```
+
+Complete this step for all months.
+
+Append into one data frame.
+
+```{r}
+all_trips <- bind_rows(May_2022,Jun_2022,Jul_2022,Aug_2022,Sep_2022,Oct_2022,Nov_2022,Dec_2022,Jan_2023,Feb_2023,Mar_2023,Apr_2023)
+```
+
+### Inspect the new data frame.
+
+Observe the number of columns and rows, the structure of the data frame, get a preview of the data, names of the columns, and data type.
+
+```{r}
+str(all_trips)
+```
+
+For columns that are character data types, view the length. For datetime and double, view the five number summary.
+
+```{r}
+summary(all_trips)
+```
+
+View the first several rows of data.
+
+```{r}
+head(all_trips)
+```
+
+View the types of riders and bikes. Make sure there are no errors with data entry for these columns (ex: for members there should only be two types).
+
+```{r}
+unique(all_trips$member_casual)
+unique(all_trips$rideable_type)
+```
+
+Create a frequency table for the member_casual and rideable_type columns.
+
+```{r}
+table(all_trips$member_casual)
+table(all_trips$rideable_type)
+```
+
+Members have taken more rides than casual riders during the past year (May 2022-April 2023). The most common type of bike ridden is the electric bike.
+
+### Preparing for analysis
+
+Create columns that list the date, month, day, year, day of week, and hour of each ride. Create a new column that combines the start and end station names.
+
+```{r}
+all_trips$date <- as_datetime(all_trips$started_at)
+all_trips$month <- format(as.Date(all_trips$date),"%m")
+all_trips$day <- format(as.Date(all_trips$date),"%d")
+all_trips$year <- format(as.Date(all_trips$date),"%Y")
+all_trips$day_of_week <- format(as.Date(all_trips$date),"%A")
+all_trips$hour <- format(as_datetime(all_trips$date), "%H")
+all_trips$start_end <- paste(all_trips$start_station_name, ",", all_trips$end_station_name)
+```
+
+Add a calculated column for duration of the ride in minutes.
+
+```{r}
+all_trips$ride_length <- difftime(all_trips$ended_at,all_trips$started_at, units=c("mins"))
+```
+
+Inspect the data frame to make sure the columns were added and appear correct.
+
+```{r}
+str(all_trips)
+```
+
+Ride length and hour are currently a character data type. Convert them to numeric.
+
+```{r}
+all_trips$ride_length <- as.numeric(as.character(all_trips$ride_length))
+is.numeric(all_trips$ride_length)
+all_trips$hour <- as.numeric(as.character(all_trips$hour))
+is.numeric(all_trips$hour)
+summary(all_trips$ride_length)
+```
+
+The summary shows the minimum for ride_length is a negative value. Remove any negative values and create a new data set (version 2).
+
+```{r}
+all_trips_v2 <- all_trips[!(all_trips$ride_length<0),]
+```
+
+```{r}
+summary(all_trips_v2)
+```
+
+### Analysis
+
+##### 1. Comparison of ride length and total number of rides between members and casual riders.
+
+Ride length analysis.
+
+```{r}
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=mean)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=max)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=min)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=median)
+```
+
+Count the total number of rides taken by members and casual riders.
+
+```{r}
+nrow(subset(all_trips_v2,member_casual=="member"))
+nrow(subset(all_trips_v2,member_casual=="casual"))
+```
+
+Member's trip lengths are shorter by an average of 15.99 minutes and members are using the bikes more than casual riders.
+
+
+##### 2. Comparison of rides taken each day of the week between members and casual riders.
+
+Order the days of the week Sun-Sat.
+
+```{r message=FALSE}
+all_trips_v2$day_of_week <- ordered(all_trips_v2$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+
+all_trips_v2 %>% 
+  group_by(member_casual, day_of_week) %>% 
+  summarise(number_of_rides = n()					 
+            ,average_duration = mean(ride_length)) %>% 		
+  arrange(member_casual, day_of_week)		
+```
+
+The n() function counts the number of observations by the groups identified in the summarize function
+
+Graph as a column chart.
+
+```{r message=FALSE}
+options(scipen=999)
+all_trips_v2 %>% 
+  group_by(member_casual, day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(x="Day of Week", y="Number of Rides", 
+       title="Total Number of Rides Taken Each Day of the Week", 
+       subtitle="Members vs. Casual Riders") +
+  guides(fill=guide_legend(title="Rider Type"))
+```
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual, day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(x="Day of Week", y="Average Duration of Ride",
+       title="Average Ride Duration on Each Day of Week",
+       subtitle="Members vs. Casual Riders")+
+  guides(fill=guide_legend(title="Rider Type"))
+```
+
+Casual riders use Cyclistic bikes more often on the weekends while members take more rides on weekdays. The duration of member's rides stays fairly consistent throughout the week with a slight increase in duration on the weekends. Casual riders take significantly longer rides on the weekends with their shortest rides being taken on Wednesdays.
+
+##### 3. Comparison of start times between members and casual riders
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual,hour) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, hour)
+```
+
+```{r message=FALSE}
+options(scipen=999)
+all_trips_v2 %>% 
+  group_by(member_casual,hour) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, hour) %>% 
+  ggplot(aes(x=hour, y=number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge")+
+  labs(x="Hour of Day", y="Total Number of Rides",
+       title="Total Number of Rides Taken Each Hour of the Day",
+       subtitle="Members vs. Casual Riders")+
+  guides(fill=guide_legend(title="Rider Type"))
+```
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual,hour) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, hour) %>% 
+  ggplot(aes(x=hour, y=average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(x="Hour of Day", y="Average Duration of Ride",
+       title="Average Ride Duration of Each Hour of the Day",
+       subtitle="Members vs. Casual Riders")+
+  guides(fill=guide_legend(title="Rider Type"))
+```
+
+Casual riders take their longest rides early in the morning (3am), though this is also the time when the least number of rides are taken. Their shortest trips start at 7 or 8am. The duration is fairly consistent from 10am-midnight, with a slight dip from 4-6 pm. The number of trips taken by casual riders is lowest at 4am, then gradually increases until it peaks at 5pm, followed by a gradual decrease.
+
+For members, the duration of trips stays fairly consistent across different times of the day, with a slight decrease in the morning hours (5-9am). The number of trips taken for members peaks in the morning (8am) and early in the evening (5pm).
+
+This suggests many members are using the bikes to commute while casual riders may take the bikes for leisure rides mostly in the evening.
+
+##### 4. Comparison of start station and end station usage between members and casual riders
+
+Remove all trips that don't have either a start or end station name.
+
+```{r}
+all_trips_v3 <- all_trips_v2[!(is.na(all_trips_v2$start_station_name) | is.na(all_trips_v2$end_station_name)), ]
+```
+
+```{r}
+nrow(subset(all_trips_v3,member_casual=="member"))
+nrow(subset(all_trips_v3,member_casual=="casual"))
+```
+
+Determine the most frequently used start and end stations grouped by rider type:
+
+```{r message=FALSE}
+all_trips_v3 %>% 
+  group_by(member_casual, start_station_name) %>% 
+  filter(member_casual=="member") %>% 
+  summarize(number_of_trips=n()) %>% 
+  arrange(desc(number_of_trips))
+```
+
+```{r message=FALSE}
+all_trips_v3 %>% 
+  group_by(member_casual, start_station_name) %>% 
+  filter(member_casual=="casual") %>% 
+  summarize(number_of_trips=n()) %>% 
+  arrange(desc(number_of_trips))
+```
+
+Casual riders use less stations than members. The most popular station makes up 3.03% (54,340/1,791,144) of the total number of trips (using v3 data) of casual riders. The top 10 most popular stations make up 12.99% (232,742/1,791,144) of the total number of trips.
+
+In comparison, the most popular station for members makes up 0.87% (23,814/2,743,031) of the total number of trips taken by members. The top 10 most popular stations make up 7.24% (23,814/2,743,031) of the total number of trips.
+
+Please note these numbers exclude trips where the start station or end station name was missing.
+
+Determine the most common trips members and casual riders are taking:
+
+```{r message=FALSE}
+all_trips_v3 %>% 
+  group_by(start_end) %>% 
+  filter(member_casual=="member") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r message=FALSE}
+all_trips_v3 %>% 
+  group_by(start_end) %>% 
+  filter(member_casual=="casual") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+The top 10 trip routes make up 1.60% (43,991/2,743,031) of total member rides and 2.48% (44,334/1,791,144) of total casual rides. The top route for casual riders makes up .58% of total casual rides. The top route for members is .24% (6,548/2,743,031). Casual riders are taking the same routes more often than members.
+
+##### 5. Comparison of the number of rides and ride duration by day of the week for each rider type.
+
+###### A. CASUAL RIDERS
+
+Create new data frame with the total number of trips broken out by day of the week. It will contain casual rider trips only.
+
+```{r message=FALSE}
+casual_start_end <- all_trips_v3 %>% 
+  group_by(start_end) %>% 
+  filter(member_casual=="casual") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length),
+            sat=length(which(day_of_week=="Saturday")),
+            mon=length(which(day_of_week=="Monday")),
+            tue=length(which(day_of_week=="Tuesday")),
+            wed=length(which(day_of_week=="Wednesday")),
+            thu=length(which(day_of_week=="Thursday")),
+            fri=length(which(day_of_week=="Friday")),
+            sun=length(which(day_of_week=="Sunday"))) %>% 
+  arrange(desc(number_of_rides))
+```
+
+Create data frame for the top 10 rows of the casual_start_end data frame.
+
+```{r}
+top10_casual_start_end <- casual_start_end %>% 
+  slice(1:10)
+```
+
+Transform the top 10 rows from wide to long format.
+
+```{r}
+casual_start_end_long <- melt(top10_casual_start_end,
+                              id.vars = c("start_end", "number_of_rides","average_duration"))
+casual_start_end_long$average_duration=NULL
+casual_start_end_long$number_of_rides=NULL
+```
+
+Graph
+
+```{r message=FALSE}
+casual_start_end_long %>% 
+  group_by(start_end) %>% 
+  ggplot(aes(x=variable,y=value,group=start_end, color=start_end))+
+  geom_line() +
+  labs(x="Day of Week", y="Number of Rides",
+       title="Top 10 Most Popular Routes Taken by Casual Riders",
+       subtitle="Number of Rides per Day of Week") +
+  guides(fill=guide_legend(title="Start, End Station Name"))
+```
+
+###### B. MEMBERS
+Repeat the same steps for members.
+
+```{r}
+member_start_end<- all_trips_v3 %>% 
+  group_by(start_end) %>% 
+  filter(member_casual=="member") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length),
+            sat=length(which(day_of_week=="Saturday")),
+            mon=length(which(day_of_week=="Monday")),
+            tue=length(which(day_of_week=="Tuesday")),
+            wed=length(which(day_of_week=="Wednesday")),
+            thu=length(which(day_of_week=="Thursday")),
+            fri=length(which(day_of_week=="Friday")),
+            sun=length(which(day_of_week=="Sunday"))) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r}
+top10_member_start_end <- member_start_end %>% 
+  slice(1:10)
+```
+
+```{r}
+member_start_end_long <- melt(top10_member_start_end,
+                              id.vars = c("start_end", "number_of_rides","average_duration"))
+member_start_end_long$average_duration=NULL
+member_start_end_long$number_of_rides=NULL
+```
+
+```{r message=FALSE}
+member_start_end_long %>% 
+  group_by(start_end) %>% 
+  ggplot(aes(x=variable,y=value,group=start_end, color=start_end))+
+  geom_line()+
+  labs(x="Day of Week", y="Number of Rides",
+       title="Top 10 Most Popular Routes Taken by Members",
+       subtitle="Number of Rides per Day of Week") +
+  guides(fill=guide_legend(title="Start, End Station Name"))
+```
+
+At the top 10 most popular stations, casual riders mostly ride on the weekends while members mostly ride on weekdays.
+
+
+```{r}
+summary(member_start_end$average_duration)
+summary(casual_start_end$average_duration)
+```
+As seen previously, member's rides are, on average, shorter in duration than casual riders.
+
+##### 6. Comparison of rides taken each month between members and casual riders
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual,month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month) %>% 
+  ggplot(aes(x=month, y=number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(x="Month", y="Number of Rides",
+       title="Number of Rides Taken Each Month",
+       subtitle="Members vs. Casual Riders") +
+  guides(fill=guide_legend(title="Rider Type"))
+```
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual,month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month) %>% 
+  ggplot(aes(x=month, y=average_duration, fill = member_casual)) +
+  geom_col(position = "dodge") +
+  labs(x="Month", y="Average Duration of Ride",
+       title="Average Duration of Rides Taken Each Month",
+       subtitle="Members vs. Casual Riders") +
+  guides(fill=guide_legend(title="Rider Type"))
+```
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual,month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month) %>% 
+  ggplot(aes(x=month, y=average_duration, color = member_casual, size=number_of_rides)) +
+  geom_point()+
+  labs(x="Month", y="Average Duration of Ride",
+       title="Avg Duration and Number of Rides Taken by Month",
+       subtitle="Members vs. Casual Riders")
+```
+
+```{r message=FALSE}
+all_trips_v2 %>% 
+  group_by(member_casual,month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month) %>% 
+  ggplot(aes(x=month, y=number_of_rides, color = member_casual, size=average_duration)) +
+  geom_point()+
+  labs(x="Month", y="Number of Rides",
+       title="Number and Avg Duration of Rides Taken by Month",
+       subtitle="Members vs. Casual Riders")
+```
+
+The duration of rides each month for casual riders is significantly greater than members. For casual riders and members, the duration of rides is higher in the summer months, though this is more significant for casual riders.
+
+For casual riders and members, there are a greater number of rides taken during the summer months than in the winter months, though the difference is more pronounced for casual riders. The number of rides taken by members and casual riders is closest during the month of July. Members are taking more rides than casual riders during the winter months. 
+
+This suggests that members are using the bikes year-round as a means of transportation while casual riders may use the bikes more for leisure during the summer months.
+
+##### 7. Average Duration vs. Number of Rides for Members and Casual Riders. 
+
+Used data within two standard deviations of the mean to be able to see trends more clearly.
+
+```{r}
+mean(member_start_end$average_duration)
+sd(member_start_end$average_duration)
+```
+
+
+```{r message=FALSE}
+member_start_end %>% 
+  filter(average_duration<63.99886) %>% 
+  ggplot(aes(x=number_of_rides, y=average_duration))+
+           geom_point() +
+  labs(x="Average Duration of Ride", y="Number of Rides",
+       title="Average Duration vs. Number of Rides Taken by Members")
+```
+
+
+```{r}
+mean(casual_start_end$average_duration)
+sd(casual_start_end$average_duration)
+```
+
+```{r}
+casual_start_end %>% 
+  filter(average_duration<160.05513) %>% 
+  ggplot(aes(x=number_of_rides, y=average_duration))+
+  geom_point() +
+  labs(x="Average Duration of Ride", y="Number of Rides",
+       title="Average Duration vs. Number of Rides Taken by Casual Riders")
+```
+
+Each point represents a route (start station/end station combination). This is another way to graphically show insights seen previously. Members' rides are shorter on average. There are fewer popular routes for casual riders and they are more frequently used compared to the most popular routes taken by members. One route in particular was taken over 10,000 times by casual riders versus the most popular member route being taken only approximately 6,500 times. 
+
+Next, to visualize where the most popular start and end stations are located, the latitude and longitudes provided for the stations will be used to map out where they are in Chicago. The map will be compared to Google Maps to determine whether there are any landmarks which may provide greater context for why these locations are popular for members and casual riders.
+
+##### 8. Visualizing the Data on a Map of Chicago
+
+###### A. MEMBERS
+Most popular start locations.
+
+```{r comment=FALSE}
+map_member_start<-all_trips_v3 %>% 
+  group_by(start_station_name, start_lat,start_lng) %>% 
+  filter(member_casual=="member") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r}
+top100_map_member_start <- map_member_start[1:100, ]
+```
+
+```{r}
+mapview(top100_map_member_start,xcol="start_lng",ycol="start_lat", crs=4296, grid=FALSE, cex="number_of_rides")
+```
+
+Most popular end locations.
+
+```{r comment=FALSE}
+map_member_end <-all_trips_v3 %>% 
+  group_by(end_station_name,end_lat,end_lng) %>% 
+  filter(member_casual=="member") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r}
+top100_map_member_end <- map_member_end[1:100, ]
+```
+
+```{r}
+mapview(top100_map_member_end,xcol="end_lng",ycol="end_lat",crs=4296, grid=FALSE,cex="number_of_rides")
+```
+
+Most popular routes.
+
+```{r comment=FALSE}
+map_member_start_end<- all_trips_v3 %>% 
+  group_by(start_end,start_lat,start_lng,end_lat, end_lng) %>% 
+  filter(member_casual=="member") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r}
+top100_map_member_start_end <- map_member_start_end[1:100, ]
+```
+
+```{r}
+sum(top100_map_member_start_end$number_of_rides)/sum(map_member_start_end$number_of_rides)
+```
+
+```{r comment=FALSE}
+mapview(top100_map_member_start_end,xcol="start_lng", ycol="start_lat", crs=4296, grid=FALSE, cex="number_of_rides")
+mapview(top100_map_member_start_end,xcol="end_lng", ycol="end_lat", crs=4296, grid=FALSE, cex="number_of_rides")
+```
+
+###### B. CASUAL RIDERS
+Most popular start locations.
+
+```{r comment=FALSE}
+map_casual_start<-all_trips_v3 %>% 
+  group_by(start_station_name, start_lat,start_lng) %>% 
+  filter(member_casual=="casual") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r}
+top100_map_casual_start <- map_casual_start[1:100, ]
+```
+
+```{r}
+mapview(top100_map_casual_start,xcol="start_lng",ycol="start_lat", crs=4296, grid=FALSE, cex="number_of_rides")
+```
+
+Most popular end locations.
+
+```{r comment=FALSE}
+map_casual_end <-all_trips_v3 %>% 
+  group_by(end_station_name,end_lat,end_lng) %>% 
+  filter(member_casual=="casual") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+```
+
+```{r}
+top100_map_casual_end <- map_casual_end[1:100, ]
+```
+
+```{r}
+mapview(top100_map_casual_end,xcol="end_lng",ycol="end_lat",crs=4296, grid=FALSE,cex="number_of_rides")
+```
+
+Most popular routes.
+
+```{r comment=FALSE}
+map_casual_start_end<- all_trips_v3 %>% 
+  group_by(start_end,start_lat,start_lng,end_lat, end_lng) %>% 
+  filter(member_casual=="casual") %>% 
+  summarize(number_of_rides=n(),
+            average_duration=mean(ride_length)) %>% 
+  arrange(desc(number_of_rides))
+
+```
+
+```{r}
+top100_map_casual_start_end <- map_casual_start_end[1:100, ]
+```
+
+```{r}
+sum(top100_map_casual_start_end$number_of_rides)/sum(map_casual_start_end$number_of_rides)
+```
+
+```{r}
+mapview(top100_map_casual_start_end,xcol="start_lng", ycol="start_lat", crs=4296, grid=FALSE, cex="number_of_rides")
+```
+
+```{r}
+mapview(top100_map_casual_start_end,xcol="end_lng", ycol="end_lat", crs=4296, grid=FALSE, cex="number_of_rides")
+```
+
+When compared to Google Maps landmarks, member trips are concentrated around colleges while casual rider trips are concentrated around tourist landmarks. 
+
+This supports the hypothesis that members are primarily using the bikes as a means of reliable transportation while casual users are using them to sight-see and visit popular locations. Since many members start and end locations are near colleges, the demographic of members may be college students. 
