@@ -1,11 +1,22 @@
+```ruby
+require 'redcarpet'
+markdown = Redcarpet.new("Hello World!")
+puts markdown.to_html
+```
+
 --IMPORT DATA
 --Append all tables by using UNION ALL.
+
 SELECT *
 FROM `my-data-project-381018.cyclistic.May_2022` 
+  
 UNION ALL
+
 SELECT *
 FROM `my-data-project-381018.cyclistic.June_2022_1`
+
 UNION ALL
+
 SELECT * 
 FROM `my-data-project-381018.cyclistic.June_2022_2` 
 UNION ALL
