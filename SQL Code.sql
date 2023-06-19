@@ -1,8 +1,3 @@
-```ruby
-require 'redcarpet'
-markdown = Redcarpet.new("Hello World!")
-puts markdown.to_html
-```
 /*
 Cyclistic Case Study: Quarterly Data Exploration, 2022_Q1
 Windows Functions, Aggregate Functions, Converting Data Types
